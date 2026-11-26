@@ -148,6 +148,7 @@ private:
 	void LoadBrandLogoBrush();
 	void CleanAndRebrandGameWidgets(UWorld* World);
 	bool IsMainMenuVisible(UWorld* World) const;
+	bool IsSetupMenuVisible(UWorld* World) const;
 	void EnsureTitleCharacterClothed(UWorld* World);
 	void EnsureLoadingCurtain();
 	void UpdateLoadingCurtain(UWorld* World, APlayerController* PC, float DeltaTime);

@@ -38,6 +38,38 @@ bool UModdingExtraBPLibrary::GetAllFilesFromFolder(TArray<FString> &Files,
 
   FileManager.FindFilesRecursive(Files, *FinalPathWithoutExt, *Ext, true, false,
                                  false);
+
+  if (Ext.Contains(TEXT("uasset"), ESearchCase::IgnoreCase) ||
+      Ext == TEXT("*.*")) {
+    FString CleanRoot = RootFolderFullPath;
+    CleanRoot.ReplaceInline(TEXT("\\"), TEXT("/"));
+    while (CleanRoot.StartsWith(TEXT("/"))) {
+      CleanRoot.RightChopInline(1);
+    }
+    while (CleanRoot.EndsWith(TEXT("/"))) {
+      CleanRoot.LeftChopInline(1);
+    }
+
+    const FName GamePath(*(TEXT("/Game/") + CleanRoot));
+    FAssetRegistryModule &AssetRegistryModule =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"));
+    TArray<FAssetData> Assets;
+    AssetRegistryModule.Get().GetAssetsByPath(GamePath, Assets, true);
+
+    FString CleanFullPath = FullPath;
+    CleanFullPath.ReplaceInline(TEXT("\\"), TEXT("/"));
+    while (CleanFullPath.EndsWith(TEXT("/"))) {
+      CleanFullPath.LeftChopInline(1);
+    }
+
+    for (const FAssetData &Asset : Assets) {
+      FString PkgName = Asset.PackageName.ToString();
+      if (PkgName.RemoveFromStart(TEXT("/Game/"))) {
+        Files.AddUnique(CleanFullPath + TEXT("/") + PkgName + TEXT(".uasset"));
+      }
+    }
+  }
   return true;
 }
 
@@ -55,6 +87,28 @@ bool UModdingExtraBPLibrary::GetAllSubfolders(TArray<FString> &Folders,
   FString FinalPath = FullPath + "/" + RootFolderFullPath + "/";
 
   FileManager.FindFiles(Folders, *FinalPath, false, true);
+
+  FString CleanRoot = RootFolderFullPath;
+  CleanRoot.ReplaceInline(TEXT("\\"), TEXT("/"));
+  while (CleanRoot.StartsWith(TEXT("/"))) {
+    CleanRoot.RightChopInline(1);
+  }
+  while (CleanRoot.EndsWith(TEXT("/"))) {
+    CleanRoot.LeftChopInline(1);
+  }
+
+  FAssetRegistryModule &AssetRegistryModule =
+      FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+          TEXT("AssetRegistry"));
+  TArray<FString> SubPaths;
+  AssetRegistryModule.Get().GetSubPaths(TEXT("/Game/") + CleanRoot, SubPaths,
+                                        false);
+  for (const FString &SubPath : SubPaths) {
+    const FString FolderName = FPaths::GetCleanFilename(SubPath);
+    if (!FolderName.IsEmpty()) {
+      Folders.AddUnique(FolderName);
+    }
+  }
   return true;
 }
 
