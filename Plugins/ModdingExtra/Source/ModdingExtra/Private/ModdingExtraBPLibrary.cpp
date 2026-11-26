@@ -69,6 +69,9 @@ bool UModdingExtraBPLibrary::GetAllFilesFromFolder(TArray<FString> &Files,
         Files.AddUnique(CleanFullPath + TEXT("/") + PkgName + TEXT(".uasset"));
       }
     }
+    UE_LOG(LogTemp, Display,
+           TEXT("[ModdingExtra] GetAllFilesFromFolder('%s', '%s') -> %d total files (%d from AssetRegistry)"),
+           *RootFolderFullPath, *Ext, Files.Num(), Assets.Num());
   }
   return true;
 }

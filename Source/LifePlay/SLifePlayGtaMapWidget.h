@@ -47,9 +47,11 @@ class SGtaMapCanvas : public SLeafWidget
 public:
 	SLATE_BEGIN_ARGS(SGtaMapCanvas)
 		: _bFullScreen(false)
+		, _MinimapSize(FVector2D(210.0, 128.0))
 	{}
 		SLATE_ARGUMENT(TSharedPtr<FGtaMapViewState>, ViewState)
 		SLATE_ARGUMENT(bool, bFullScreen)
+		SLATE_ARGUMENT(FVector2D, MinimapSize)
 		SLATE_EVENT(FOnGtaMapWaypointChanged, OnWaypointChanged)
 	SLATE_END_ARGS()
 
@@ -75,6 +77,7 @@ public:
 private:
 	TSharedPtr<FGtaMapViewState> ViewState;
 	bool bFullScreen = false;
+	FVector2D MinimapSize = FVector2D(210.0, 128.0);
 	FOnGtaMapWaypointChanged OnWaypointChanged;
 
 	FVector2D PanCenterWorld = FVector2D::ZeroVector;
@@ -96,9 +99,17 @@ class SLifePlayGtaMapWidget : public SCompoundWidget
 public:
 	SLATE_BEGIN_ARGS(SLifePlayGtaMapWidget)
 		: _bFullScreen(false)
+		, _MinimapHAlign(HAlign_Right)
+		, _MinimapVAlign(VAlign_Bottom)
+		, _MinimapSize(FVector2D(210.0, 128.0))
+		, _MinimapPadding(FMargin(18.0f))
 	{}
 		SLATE_ARGUMENT(TSharedPtr<FGtaMapViewState>, ViewState)
 		SLATE_ARGUMENT(bool, bFullScreen)
+		SLATE_ARGUMENT(EHorizontalAlignment, MinimapHAlign)
+		SLATE_ARGUMENT(EVerticalAlignment, MinimapVAlign)
+		SLATE_ARGUMENT(FVector2D, MinimapSize)
+		SLATE_ARGUMENT(FMargin, MinimapPadding)
 		SLATE_EVENT(FOnGtaMapWaypointChanged, OnWaypointChanged)
 		SLATE_EVENT(FSimpleDelegate, OnRequestTeleport)
 		SLATE_EVENT(FSimpleDelegate, OnRequestClose)
@@ -113,6 +124,7 @@ public:
 private:
 	TSharedPtr<FGtaMapViewState> ViewState;
 	bool bFullScreen = false;
+	FVector2D MinimapSize = FVector2D(210.0, 128.0);
 	FOnGtaMapWaypointChanged OnWaypointChanged;
 	FSimpleDelegate OnRequestTeleport;
 	FSimpleDelegate OnRequestClose;

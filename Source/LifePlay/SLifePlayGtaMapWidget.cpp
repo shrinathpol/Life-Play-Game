@@ -16,6 +16,9 @@ void SGtaMapCanvas::Construct(const FArguments& InArgs)
 {
 	ViewState = InArgs._ViewState;
 	bFullScreen = InArgs._bFullScreen;
+	MinimapSize = (InArgs._MinimapSize.X > 10.0 && InArgs._MinimapSize.Y > 10.0)
+		? InArgs._MinimapSize
+		: FVector2D(210.0, 128.0);
 	OnWaypointChanged = InArgs._OnWaypointChanged;
 
 	PixelsPerCm = bFullScreen ? 0.0038f : 0.0068f;
@@ -36,7 +39,7 @@ void SGtaMapCanvas::CenterOnPlayer()
 
 FVector2D SGtaMapCanvas::ComputeDesiredSize(float) const
 {
-	return bFullScreen ? FVector2D(920.0, 620.0) : FVector2D(256.0, 152.0);
+	return bFullScreen ? FVector2D(920.0, 620.0) : MinimapSize;
 }
 
 FVector2D SGtaMapCanvas::WorldToScreen(const FVector2D& WorldPt, const FVector2D& Size) const
@@ -375,6 +378,9 @@ void SLifePlayGtaMapWidget::Construct(const FArguments& InArgs)
 {
 	ViewState = InArgs._ViewState;
 	bFullScreen = InArgs._bFullScreen;
+	MinimapSize = (InArgs._MinimapSize.X > 10.0 && InArgs._MinimapSize.Y > 10.0)
+		? InArgs._MinimapSize
+		: FVector2D(210.0, 128.0);
 	OnWaypointChanged = InArgs._OnWaypointChanged;
 	OnRequestTeleport = InArgs._OnRequestTeleport;
 	OnRequestClose = InArgs._OnRequestClose;
@@ -401,12 +407,12 @@ void SLifePlayGtaMapWidget::Construct(const FArguments& InArgs)
 	{
 		SetVisibility(EVisibility::HitTestInvisible);
 		ChildSlot
-		.HAlign(HAlign_Left)
-		.VAlign(VAlign_Bottom)
-		.Padding(FMargin(20.0f, 0.0f, 0.0f, 54.0f))
+		.HAlign(InArgs._MinimapHAlign)
+		.VAlign(InArgs._MinimapVAlign)
+		.Padding(InArgs._MinimapPadding)
 		[
 			SNew(SBox)
-			.WidthOverride(256.0f)
+			.WidthOverride(MinimapSize.X)
 			[
 				SNew(SBorder)
 				.BorderImage(WhiteBrush)
@@ -431,6 +437,7 @@ void SLifePlayGtaMapWidget::Construct(const FArguments& InArgs)
 						SAssignNew(Canvas, SGtaMapCanvas)
 						.ViewState(ViewState)
 						.bFullScreen(false)
+						.MinimapSize(MinimapSize)
 					]
 					+ SVerticalBox::Slot()
 					.AutoHeight()

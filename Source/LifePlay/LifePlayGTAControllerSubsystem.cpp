@@ -29,6 +29,7 @@
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "LifePlayAIRoleplaySubsystem.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
@@ -100,6 +101,51 @@ void ULifePlayGTAControllerSubsystem::Initialize(
   DressRetryTimer = 0.0f;
   DressRetryCount = 0;
   LoadingStatusText = TEXT("Loading game assets & clothing...");
+  LoadHudConfig();
+}
+
+void ULifePlayGTAControllerSubsystem::LoadHudConfig() {
+  TArray<FString> Candidates;
+  Candidates.Add(FPaths::Combine(FPaths::ProjectConfigDir(),
+                                 TEXT("LifePlayHUD.ini")));
+  Candidates.Add(FPaths::Combine(FPaths::LaunchDir(), TEXT("LifePlayHUD.ini")));
+  Candidates.Add(
+      FPaths::Combine(FPaths::ProjectDir(), TEXT("LifePlayHUD.ini")));
+  Candidates.Add(FPaths::Combine(
+      FPaths::ConvertRelativePathToFull(
+          FPaths::Combine(FPaths::LaunchDir(), TEXT("../../.."))),
+      TEXT("LifePlayHUD.ini")));
+
+  FString LoadedPath(TEXT("Defaults"));
+  for (const FString &Path : Candidates) {
+    if (!FPaths::FileExists(Path)) {
+      continue;
+    }
+    FConfigFile Cfg;
+    Cfg.Read(Path);
+    const TCHAR *Sec = TEXT("LifePlayHUD");
+    Cfg.GetBool(Sec, TEXT("bShowMinimap"), bHudShowMinimap);
+    Cfg.GetBool(Sec, TEXT("bShowTopStatusCard"), bHudShowTopStatusCard);
+    Cfg.GetBool(Sec, TEXT("bShowBottomControlsBar"), bHudShowBottomControlsBar);
+    Cfg.GetString(Sec, TEXT("MinimapAnchor"), HudMinimapAnchor);
+    Cfg.GetFloat(Sec, TEXT("MinimapWidth"), HudMinimapWidth);
+    Cfg.GetFloat(Sec, TEXT("MinimapHeight"), HudMinimapHeight);
+    Cfg.GetFloat(Sec, TEXT("MinimapOffsetX"), HudMinimapOffsetX);
+    Cfg.GetFloat(Sec, TEXT("MinimapOffsetY"), HudMinimapOffsetY);
+    LoadedPath = Path;
+  }
+
+  HudMinimapWidth = FMath::Clamp(HudMinimapWidth, 120.0f, 420.0f);
+  HudMinimapHeight = FMath::Clamp(HudMinimapHeight, 80.0f, 300.0f);
+  HudMinimapOffsetX = FMath::Clamp(HudMinimapOffsetX, 0.0f, 400.0f);
+  HudMinimapOffsetY = FMath::Clamp(HudMinimapOffsetY, 0.0f, 400.0f);
+
+  UE_LOG(LogTemp, Display,
+         TEXT("[LifePlayHUD] Config='%s' TopCard=%d Minimap=%d BottomBar=%d "
+              "Anchor=%s Size=%.0fx%.0f Offset=%.0f,%.0f"),
+         *LoadedPath, bHudShowTopStatusCard ? 1 : 0, bHudShowMinimap ? 1 : 0,
+         bHudShowBottomControlsBar ? 1 : 0, *HudMinimapAnchor, HudMinimapWidth,
+         HudMinimapHeight, HudMinimapOffsetX, HudMinimapOffsetY);
 }
 
 void ULifePlayGTAControllerSubsystem::Deinitialize() {
@@ -315,10 +361,22 @@ bool ULifePlayGTAControllerSubsystem::IsSetupMenuVisible(UWorld *World) const {
       continue;
     }
     const FString ClassName = UW->GetClass()->GetName();
-    if (ClassName.Contains(TEXT("CityMenu")) ||
-        ClassName.Contains(TEXT("CharGen")) ||
-        ClassName.Contains(TEXT("LoadMenu")) ||
-        ClassName.Contains(TEXT("NewGame"))) {
+    static const TCHAR *SetupMenuPrefixes[] = {
+        TEXT("CityMenu"), TEXT("CharGen"),   TEXT("LoadMenu"),
+        TEXT("NewGame"),  TEXT("Loading"),   TEXT("Builder"),
+        TEXT("StatMenu"), TEXT("ContactMenu"), TEXT("BodyShapeMenu"),
+        TEXT("ModManager"), TEXT("Inventory"), TEXT("Journal"),
+        TEXT("Quest"),    TEXT("Perk"),      TEXT("Tutorial"),
+        TEXT("FAQ"),      TEXT("Preset"),    TEXT("SaveSlot"),
+        TEXT("BuildingEdit"), TEXT("SexInterface")};
+    bool bMatchesSetup = false;
+    for (const TCHAR *Prefix : SetupMenuPrefixes) {
+      if (ClassName.Contains(Prefix)) {
+        bMatchesSetup = true;
+        break;
+      }
+    }
+    if (bMatchesSetup) {
       const ESlateVisibility Vis = UW->GetVisibility();
       if (Vis != ESlateVisibility::Collapsed &&
           Vis != ESlateVisibility::Hidden) {
@@ -482,6 +540,11 @@ void ULifePlayGTAControllerSubsystem::DismissLoadingCurtain(
   LoadingCurtainContainer.Reset();
   bLoadingCurtainActive = false;
   bLoadingCurtainDismissed = true;
+
+  UE_LOG(LogTemp, Display,
+         TEXT("[LifePlayHUD] Loading curtain dismissed after %.2fs "
+              "(TitleCharClothed=%d, MainMenu=%d)"),
+         LoadingElapsed, bTitleCharClothed ? 1 : 0, bOnMainMenu ? 1 : 0);
 
   if (PC && bOnMainMenu) {
     ApplyInputLockForGta(PC, false);
@@ -912,94 +975,120 @@ void ULifePlayGTAControllerSubsystem::EnsureHudOverlay() {
     return;
   }
 
-  if (!MinimapContainer.IsValid() && MapViewState.IsValid()) {
+  if (bHudShowMinimap && !MinimapContainer.IsValid() && MapViewState.IsValid()) {
+    EHorizontalAlignment HAlign = HAlign_Right;
+    EVerticalAlignment VAlign = VAlign_Bottom;
+    if (HudMinimapAnchor.Equals(TEXT("BottomLeft"), ESearchCase::IgnoreCase)) {
+      HAlign = HAlign_Left;
+      VAlign = VAlign_Bottom;
+    } else if (HudMinimapAnchor.Equals(TEXT("TopRight"),
+                                       ESearchCase::IgnoreCase)) {
+      HAlign = HAlign_Right;
+      VAlign = VAlign_Top;
+    } else if (HudMinimapAnchor.Equals(TEXT("TopLeft"),
+                                       ESearchCase::IgnoreCase)) {
+      HAlign = HAlign_Left;
+      VAlign = VAlign_Top;
+    }
+
+    const FMargin MinimapMargin(
+        (HAlign == HAlign_Left) ? HudMinimapOffsetX : 0.0f,
+        (VAlign == VAlign_Top) ? HudMinimapOffsetY : 0.0f,
+        (HAlign == HAlign_Right) ? HudMinimapOffsetX : 0.0f,
+        (VAlign == VAlign_Bottom) ? HudMinimapOffsetY : 0.0f);
+
     MinimapContainer =
         SNew(SOverlay).Visibility(EVisibility::HitTestInvisible) +
         SOverlay::Slot()[SNew(SLifePlayGtaMapWidget)
                              .ViewState(MapViewState)
-                             .bFullScreen(false)];
+                             .bFullScreen(false)
+                             .MinimapHAlign(HAlign)
+                             .MinimapVAlign(VAlign)
+                             .MinimapSize(FVector2D(HudMinimapWidth,
+                                                    HudMinimapHeight))
+                             .MinimapPadding(MinimapMargin)];
     GEngine->GameViewport->AddViewportWidgetContent(
         MinimapContainer.ToSharedRef(), 22);
   }
 
-  if (HudContainer.IsValid()) {
+  if (HudContainer.IsValid() ||
+      (!bHudShowTopStatusCard && !bHudShowBottomControlsBar)) {
     return;
   }
 
-  LoadBrandLogoBrush();
   const FSlateBrush *WhiteBrush = FCoreStyle::Get().GetBrush("WhiteBrush");
+  TSharedRef<SOverlay> Overlay =
+      SNew(SOverlay).Visibility(EVisibility::HitTestInvisible);
 
-  TSharedRef<SHorizontalBox> BrandHeaderRow = SNew(SHorizontalBox);
-  if (BrandLogoBrush.IsValid()) {
-    BrandHeaderRow->AddSlot()
-        .AutoWidth()
-        .VAlign(VAlign_Center)
-        .Padding(0.0f, 0.0f, 10.0f,
-                 0.0f)[SNew(SBox).WidthOverride(96.0f).HeightOverride(
-            54.0f)[SNew(SImage).Image(BrandLogoBrush.Get())]];
+  if (bHudShowTopStatusCard) {
+    LoadBrandLogoBrush();
+    TSharedRef<SHorizontalBox> BrandHeaderRow = SNew(SHorizontalBox);
+    if (BrandLogoBrush.IsValid()) {
+      BrandHeaderRow->AddSlot()
+          .AutoWidth()
+          .VAlign(VAlign_Center)
+          .Padding(0.0f, 0.0f, 10.0f,
+                   0.0f)[SNew(SBox).WidthOverride(96.0f).HeightOverride(
+              54.0f)[SNew(SImage).Image(BrandLogoBrush.Get())]];
+    }
+
+    BrandHeaderRow->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center)
+        [SNew(SVerticalBox) +
+         SVerticalBox::Slot().AutoHeight()
+             [SNew(STextBlock)
+                  .Text(FText::FromString(TEXT("LIFEPLAY  v1.0")))
+                  .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                  .ColorAndOpacity(FLinearColor(0.22f, 0.88f, 0.98f))] +
+         SVerticalBox::Slot().AutoHeight().Padding(
+             0.0f, 2.0f, 0.0f,
+             0.0f)[SAssignNew(TopStatusModeText, STextBlock)
+                       .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                       .ColorAndOpacity(FLinearColor(0.92f, 0.95f, 1.0f))] +
+         SVerticalBox::Slot().AutoHeight().Padding(
+             0.0f, 1.0f, 0.0f,
+             0.0f)[SAssignNew(TopStatusNpcText, STextBlock)
+                       .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+                       .ColorAndOpacity(FLinearColor(0.98f, 0.80f, 0.35f))] +
+         SVerticalBox::Slot().AutoHeight().Padding(
+             0.0f, 1.0f, 0.0f,
+             0.0f)[SAssignNew(TopStatusAudioText, STextBlock)
+                       .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                       .ColorAndOpacity(FLinearColor(0.60f, 0.72f, 0.85f))]];
+
+    Overlay->AddSlot()
+        .HAlign(HAlign_Left)
+        .VAlign(VAlign_Top)
+        .Padding(FMargin(20.0f, 18.0f, 0.0f, 0.0f))
+            [SNew(SBorder)
+                 .BorderImage(WhiteBrush)
+                 .BorderBackgroundColor(FLinearColor(0.03f, 0.04f, 0.07f, 0.84f))
+                 .Padding(0.0f)
+                     [SNew(SHorizontalBox) +
+                      SHorizontalBox::Slot()
+                          .AutoWidth()[SNew(SBox).WidthOverride(
+                              4.0f)[SNew(SBorder)
+                                        .BorderImage(WhiteBrush)
+                                        .BorderBackgroundColor(FLinearColor(
+                                            0.18f, 0.82f, 0.98f, 1.0f))]] +
+                      SHorizontalBox::Slot().AutoWidth().Padding(
+                          FMargin(10.0f, 8.0f, 14.0f, 8.0f))[BrandHeaderRow]]];
   }
 
-  BrandHeaderRow->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center)
-      [SNew(SVerticalBox) +
-       SVerticalBox::Slot().AutoHeight()
-           [SNew(STextBlock)
-                .Text(FText::FromString(TEXT("LIFEPLAY  v1.0")))
-                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
-                .ColorAndOpacity(FLinearColor(0.22f, 0.88f, 0.98f))] +
-       SVerticalBox::Slot().AutoHeight().Padding(
-           0.0f, 2.0f, 0.0f,
-           0.0f)[SAssignNew(TopStatusModeText, STextBlock)
-                     .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                     .ColorAndOpacity(FLinearColor(0.92f, 0.95f, 1.0f))] +
-       SVerticalBox::Slot().AutoHeight().Padding(
-           0.0f, 1.0f, 0.0f,
-           0.0f)[SAssignNew(TopStatusNpcText, STextBlock)
-                     .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-                     .ColorAndOpacity(FLinearColor(0.98f, 0.80f, 0.35f))] +
-       SVerticalBox::Slot().AutoHeight().Padding(
-           0.0f, 1.0f, 0.0f,
-           0.0f)[SAssignNew(TopStatusAudioText, STextBlock)
-                     .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
-                     .ColorAndOpacity(FLinearColor(0.60f, 0.72f, 0.85f))]];
+  if (bHudShowBottomControlsBar) {
+    Overlay->AddSlot()
+        .HAlign(HAlign_Center)
+        .VAlign(VAlign_Bottom)
+        .Padding(FMargin(0.0f, 0.0f, 0.0f, 14.0f))
+            [SAssignNew(BottomHudBorder, SBorder)
+                 .BorderImage(WhiteBrush)
+                 .BorderBackgroundColor(FLinearColor(0.03f, 0.04f, 0.07f, 0.78f))
+                 .Padding(FMargin(12.0f, 5.0f))
+                     [SAssignNew(HudTextBlock, STextBlock)
+                          .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                          .ColorAndOpacity(FLinearColor(0.94f, 0.96f, 1.0f))]];
+  }
 
-  HudContainer =
-      SNew(SOverlay).Visibility(EVisibility::HitTestInvisible)
-
-      // Top-Left Modern GTA Brand & Status Card
-      + SOverlay::Slot()
-            .HAlign(HAlign_Left)
-            .VAlign(VAlign_Top)
-            .Padding(FMargin(20.0f, 18.0f, 0.0f, 0.0f))
-                [SNew(SBorder)
-                     .BorderImage(WhiteBrush)
-                     .BorderBackgroundColor(
-                         FLinearColor(0.03f, 0.04f, 0.07f, 0.84f))
-                     .Padding(0.0f)
-                         [SNew(SHorizontalBox) +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()[SNew(SBox).WidthOverride(
-                                  4.0f)[SNew(SBorder)
-                                            .BorderImage(WhiteBrush)
-                                            .BorderBackgroundColor(FLinearColor(
-                                                0.18f, 0.82f, 0.98f, 1.0f))]] +
-                          SHorizontalBox::Slot().AutoWidth().Padding(FMargin(
-                              10.0f, 8.0f, 14.0f, 8.0f))[BrandHeaderRow]]]
-
-      // Bottom-Center Controls & Live Pedestrian Reaction Bar
-      + SOverlay::Slot()
-            .HAlign(HAlign_Center)
-            .VAlign(VAlign_Bottom)
-            .Padding(FMargin(0.0f, 0.0f, 0.0f, 16.0f))
-                [SAssignNew(BottomHudBorder, SBorder)
-                     .BorderImage(WhiteBrush)
-                     .BorderBackgroundColor(
-                         FLinearColor(0.03f, 0.04f, 0.07f, 0.84f))
-                     .Padding(FMargin(16.0f, 7.0f))
-                         [SAssignNew(HudTextBlock, STextBlock)
-                              .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-                              .ColorAndOpacity(
-                                  FLinearColor(0.94f, 0.96f, 1.0f))]];
-
+  HudContainer = Overlay;
   GEngine->GameViewport->AddViewportWidgetContent(HudContainer.ToSharedRef(),
                                                   20);
   UpdateHudText();
@@ -1487,7 +1576,9 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime) {
     if (HudContainer.IsValid())
       HudContainer->SetVisibility(EVisibility::HitTestInvisible);
     if (MinimapContainer.IsValid())
-      MinimapContainer->SetVisibility(EVisibility::HitTestInvisible);
+      MinimapContainer->SetVisibility((bChatOpen || bFullMapOpen)
+                                          ? EVisibility::Collapsed
+                                          : EVisibility::HitTestInvisible);
   }
 
   if (!PC)

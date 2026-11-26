@@ -138,6 +138,15 @@ private:
 	int32 DressRetryCount = 0;
 	FString LoadingStatusText = TEXT("Loading game assets & clothing...");
 
+	bool bHudShowMinimap = true;
+	bool bHudShowTopStatusCard = false;
+	bool bHudShowBottomControlsBar = true;
+	FString HudMinimapAnchor = TEXT("BottomRight");
+	float HudMinimapWidth = 210.0f;
+	float HudMinimapHeight = 128.0f;
+	float HudMinimapOffsetX = 18.0f;
+	float HudMinimapOffsetY = 18.0f;
+
 	float NpcScanTimer = 0.0f;
 	float MenuCleanTimer = 0.0f;
 	float AmbientRoamTimer = 0.0f;
@@ -145,6 +154,7 @@ private:
 	FString ActiveStreetToast;
 	TMap<TWeakObjectPtr<AActor>, double> ProximityReactionTimestamps;
 
+	void LoadHudConfig();
 	void LoadBrandLogoBrush();
 	void CleanAndRebrandGameWidgets(UWorld* World);
 	bool IsMainMenuVisible(UWorld* World) const;
