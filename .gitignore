@@ -29,3 +29,7 @@ LifePlay.code-workspace
 *.pdb
 *.exe
 Thumbs.db
+!Docs/LifePlay_Banner.png
+!Docs/LifePlay_Icon.png
+!Build/Linux/Application.png
+Donate.url

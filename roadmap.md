@@ -1,31 +1,25 @@
-# LifePlay UE 5.8 Realism Overhaul, Live-Dev & AI Role-Play Roadmap
+# LifePlay v1.0 — UE 5.8 Realism, GTA Control & Interaction AI Roadmap
 
-**Project:** Open-Source *LifePlay* (by Vinfamy) — Migrated from UE 4.2x to Unreal Engine 5.8
+**Project:** *LifePlay v1.0* — Unreal Engine 5.8
 
-**Target Aesthetic:** Grounded, realistic open-world modern city & lifelike characters (GTA 6-inspired visual fidelity)
+**Target Aesthetic:** Grounded, realistic open-world modern city & lifelike characters (GTA-inspired visual fidelity)
 
-**Core Gameplay Upgrade:** GTA Third-Person Character Control + Live AI Character Role-Play (dynamic LLM conversations, persistent memory, lip-sync, and physical world actions integrated with LifePlay's RPG stats)
+**Core Gameplay Upgrade:** GTA Third-Person Character Control + Native Unreal Engine Interaction AI & Standalone Roleplay
 
-**Primary Workflow:** Real-Time Split-Screen Development (**Antigravity IDE** + **Unreal MCP** + **UE 5.8 Live Coding**)
+**Primary Workflow:** Real-Time Split-Screen Development (**Antigravity IDE** + **UE 5.8 Live Coding**)
 
-**Estimated Solo Build Time (with Antigravity):** ~3 to 5 weeks (75–120 hours total)
+---
 
-## 🧠 AI Knowledge-Sharing Context Block
-
-> **Instructions for AI Assistants (Antigravity, Gemini, Claude, etc.):**
->
-> Copy and paste this section into any new AI session—or keep `roadmap.md` in the repository root—to establish instant project context and live editor capabilities.
+## 🧠 Project Context Block
 
 > [!IMPORTANT] Hardware Profile Note (GTX 1650 4 GB VRAM)
-> This development machine runs an **NVIDIA GeForce GTX 1650 (4 GB VRAM, no hardware ray-tracing cores)**. `Config/DefaultEngine.ini` uses a **GTX 1650-safe DX11 realism profile** (Full-res SSS, GTAO, Half-Res SSGI, 2K CSM + Contact Shadows, SSR, Filmic ACES Tonemapper, TAA Sharpening, 16x Anisotropy; Lumen/VSM/Nanite/Hardware RT disabled to prevent out-of-VRAM crashes and blown-out legacy UE4 interiors). Only switch to the **8 GB+ RTX Upgrade Profile** (Lumen + VSM + Nanite + Hardware RT) if migrating to higher-VRAM hardware.
+> This development machine runs an **NVIDIA GeForce GTX 1650 (4 GB VRAM, no hardware ray-tracing cores)**. `Config/DefaultEngine.ini` uses a **GTX 1650-safe DX11 low-load profile** (`r.ScreenPercentage=80`, half-res SSS, 1K CSM shadows, fast SSR, `t.MaxFPS=60`, `r.VSync=1`; Lumen/VSM/Nanite/Hardware RT disabled to prevent out-of-VRAM crashes and blown-out legacy UE4 interiors).
 
-* **Base Codebase:** Open-source *LifePlay* (originally UE 4.2x), featuring procedural **OpenStreetMap (OSM)** city generation, a scene/dialogue scripting engine, relationship/mood RPG stats, and **MakeHuman / Manuel Bastioni Lab** character rigs driven by morph targets and custom animations.
+* **Base Codebase:** *LifePlay v1.0* on Unreal Engine 5.8, featuring procedural **OpenStreetMap (OSM)** city generation, scene scripting, relationship/mood RPG stats, and **Daz / MakeHuman** character rigs driven by morph targets and animations.
 * **Engine Target:** Unreal Engine 5.8 (C++ & Blueprints).
-* **Real-Time Development Connection:** This workspace uses **Unreal Engine 5.8's native Model Context Protocol (MCP) Server** (`ModelContextProtocol` / `unreal-mcp`) connected to **Antigravity IDE** and **UE5 Live Coding** (`Ctrl + Alt + F11`). AI agents can inspect the active level, spawn/modify actors, adjust lighting, tweak Material Instance parameters, and execute editor Python scripts live in the viewport.
-* **Runtime GTA Control & AI Role-Play Architecture:**
-  * `ULifePlayGTAControllerSubsystem` (`UTickableWorldSubsystem`): Pressing `G` toggles seamless GTA-style over-the-shoulder camera (`AGtaCameraRigActor`) and camera-relative `W/A/S/D` + `Shift` sprint + `Ctrl` walk movement on `Person_C` (`isPlayer == true`). Pressing `T` opens the right-docked AI Role-Play Chat HUD targeting the nearest NPC.
-  * `ULifePlayAIRoleplaySubsystem` (`UGameInstanceSubsystem`): Combines *LifePlay*'s live NPC variables (`Name_First`, `Name_Last`, `age`, `job`, `CurrentMood`, `rapportwithplayer`, `attractiontoplayer`) with an OpenAI-compatible LLM endpoint (local **Ollama** or cloud **Gemini / OpenAI**), rolling per-NPC JSON memory (`Saved/LifePlayAI/`), rapport updates, and physical NPC actions (`follow`, `stop_follow`, `face_player`).
-* **Critical Constraint:** **Do NOT replace the core character skeleton or break morph-target names**, as all existing LifePlay animations, outfits, facial lip-sync curves, and community mod scripts depend on them. Upgrade visual realism via shaders, Material Instances, Groom hair attachments, and procedural dressing rather than destructive skeleton swaps.
+* **Runtime GTA Control & UE Interaction AI Architecture:**
+  * `ULifePlayGTAControllerSubsystem` (`UTickableWorldSubsystem`): Pressing `G` toggles seamless GTA-style over-the-shoulder camera (`AGtaCameraRigActor`) and camera-relative `W/A/S/D` + `Shift` sprint + `Ctrl` walk movement on `Person_C` (`isPlayer == true`), renders the `LifePlay v1.0` GTA HUD card, strips legacy donate/social buttons/donor walls from `MainMenu`, plays looping `street` ambience, and enables `E`/`T` Roleplay, `F` Call NPC Over, and `M` Mute.
+  * `ULifePlayAIRoleplaySubsystem` (`UGameInstanceSubsystem`): Drives native UE `AAIController` (`SetFocus`, `MoveToActor`, `LineOfSightTo`), `UNavigationSystemV1` fleeing & street roaming, 3D `UGameplayStatics` soundplay, and 10 standalone GTA roleplay interactions persisted to `Saved/LifePlayRoleplay/`.
 
 ---
 

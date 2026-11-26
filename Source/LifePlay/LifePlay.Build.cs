@@ -13,6 +13,8 @@ public class LifePlay : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"Slate",
 			"SlateCore",
+			"UMG",
+			"ImageWrapper",
 			"Json",
 			"JsonUtilities",
 			"AIModule",

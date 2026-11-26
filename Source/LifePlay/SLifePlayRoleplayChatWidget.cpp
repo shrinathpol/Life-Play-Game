@@ -19,23 +19,55 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 	NpcActor = InArgs._NpcActor;
 	PlayerActor = InArgs._PlayerActor;
 	OnRequestClose = InArgs._OnRequestClose;
+	OnAudioMuteToggled = InArgs._OnAudioMuteToggled;
 
 	const FSlateBrush* WhiteBrush = FCoreStyle::Get().GetBrush("WhiteBrush");
+
+	auto MakeQuickBtn = [this](const TCHAR* Label, const TCHAR* ActionId) -> TSharedRef<SWidget>
+	{
+		const FString IdCopy(ActionId);
+		return SNew(SButton)
+			.OnClicked_Lambda([this, IdCopy]() { TriggerInteraction(IdCopy); return FReply::Handled(); })
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(Label))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+			];
+	};
 
 	ChildSlot
 	.HAlign(HAlign_Right)
 	.VAlign(VAlign_Fill)
-	.Padding(FMargin(0.0f, 28.0f, 24.0f, 76.0f))
+	.Padding(FMargin(0.0f, 24.0f, 24.0f, 76.0f))
 	[
 		SNew(SBox)
-		.WidthOverride(440.0f)
+		.WidthOverride(480.0f)
 		[
 			SNew(SBorder)
 			.BorderImage(WhiteBrush)
-			.BorderBackgroundColor(FLinearColor(0.04f, 0.05f, 0.08f, 0.90f))
-			.Padding(14.0f)
+			.BorderBackgroundColor(FLinearColor(0.03f, 0.04f, 0.07f, 0.92f))
+			.Padding(0.0f)
 			[
 				SNew(SVerticalBox)
+
+				// Top Cyan Accent Bar
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(SBox)
+					.HeightOverride(3.0f)
+					[
+						SNew(SBorder)
+						.BorderImage(WhiteBrush)
+						.BorderBackgroundColor(FLinearColor(0.18f, 0.82f, 0.98f, 1.0f))
+					]
+				]
+
+				+ SVerticalBox::Slot()
+				.FillHeight(1.0f)
+				.Padding(14.0f)
+				[
+					SNew(SVerticalBox)
 
 				// Header row
 				+ SVerticalBox::Slot()
@@ -49,6 +81,15 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 						+ SVerticalBox::Slot()
 						.AutoHeight()
 						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("LIFEPLAY v1.0  //  INTERACTION AI")))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+							.ColorAndOpacity(FLinearColor(0.22f, 0.88f, 0.98f))
+						]
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(0.0f, 1.0f, 0.0f, 0.0f)
+						[
 							SAssignNew(HeaderTitleText, STextBlock)
 							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
 							.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 1.0f))
@@ -58,8 +99,20 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 						.Padding(0.0f, 2.0f, 0.0f, 0.0f)
 						[
 							SAssignNew(HeaderStatsText, STextBlock)
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 							.ColorAndOpacity(FLinearColor(0.68f, 0.78f, 0.92f))
+						]
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
+					.VAlign(VAlign_Top)
+					[
+						SNew(SButton)
+						.OnClicked(this, &SLifePlayRoleplayChatWidget::HandleToggleAudioClicked)
+						[
+							SAssignNew(AudioToggleText, STextBlock)
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 						]
 					]
 					+ SHorizontalBox::Slot()
@@ -91,105 +144,43 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 					]
 				]
 
-				// Row 1: Dialogue Roleplay Presets
+				// Row 1: Social Role-Play Actions
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(0.0f, 0.0f, 0.0f, 5.0f)
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("greet")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Greet")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("ask_life")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Ask About Life")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("flirt")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Flirt")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
+					+ SHorizontalBox::Slot().AutoWidth()[ MakeQuickBtn(TEXT("Greet"), TEXT("greet")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Ask Life"), TEXT("ask_life")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Joke"), TEXT("joke")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Flirt"), TEXT("flirt")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Gift £25"), TEXT("gift")) ]
 				]
 
-				// Row 2: World Actions + Reset
+				// Row 2: Unreal Engine Interaction AI Actions
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("follow")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Follow Me")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("stay")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Stay Here")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
-					[
-						SNew(SButton)
-						.OnClicked_Lambda([this]() { TriggerInteraction(TEXT("provoke")); return FReply::Handled(); })
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Provoke")))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(6.0f, 0.0f, 0.0f, 0.0f)
+					+ SHorizontalBox::Slot().AutoWidth()[ MakeQuickBtn(TEXT("Follow Me"), TEXT("follow")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Stay"), TEXT("stay")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Call Over"), TEXT("call_over")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Apologize"), TEXT("apologize")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)[ MakeQuickBtn(TEXT("Provoke"), TEXT("provoke")) ]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)
 					[
 						SNew(SButton)
 						.OnClicked(this, &SLifePlayRoleplayChatWidget::HandleClearMemoryClicked)
 						[
 							SNew(STextBlock)
-							.Text(FText::FromString(TEXT("Reset Log")))
+							.Text(FText::FromString(TEXT("Reset")))
 							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 						]
 					]
 				]
 
-				// Custom roleplay input bar
+				// Free-text standalone input bar
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				[
@@ -198,7 +189,7 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 					.FillWidth(1.0f)
 					[
 						SAssignNew(InputBox, SEditableTextBox)
-						.HintText(FText::FromString(TEXT("Type roleplay dialogue or command (Enter to say)...")))
+						.HintText(FText::FromString(TEXT("Say anything in-character (Enter to speak)...")))
 						.OnTextCommitted(this, &SLifePlayRoleplayChatWidget::HandleInputCommitted)
 					]
 					+ SHorizontalBox::Slot()
@@ -223,7 +214,8 @@ void SLifePlayRoleplayChatWidget::Construct(const FArguments& InArgs)
 					SAssignNew(StatusText, STextBlock)
 					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 					.ColorAndOpacity(FLinearColor(0.65f, 0.72f, 0.80f))
-					.Text(FText::FromString(TEXT("Standalone Offline Roleplay — Click an action or type anything (Esc to close).")))
+					.Text(FText::FromString(TEXT("UE5 Interaction AI + Audio Soundplay (100% Standalone Offline) — Esc to close.")))
+				]
 				]
 			]
 		]
@@ -255,6 +247,13 @@ void SLifePlayRoleplayChatWidget::RefreshHeader()
 {
 	ULifePlayAIRoleplaySubsystem* Sub = Subsystem.Get();
 	AActor* Npc = NpcActor.Get();
+
+	if (AudioToggleText.IsValid())
+	{
+		const bool bMuted = Sub && Sub->IsAudioMuted();
+		AudioToggleText->SetText(FText::FromString(bMuted ? TEXT("Audio: OFF") : TEXT("Audio: ON")));
+	}
+
 	if (!Sub || !Npc)
 	{
 		if (HeaderTitleText.IsValid())
@@ -278,12 +277,13 @@ void SLifePlayRoleplayChatWidget::RefreshHeader()
 	if (HeaderStatsText.IsValid())
 	{
 		HeaderStatsText->SetText(FText::FromString(FString::Printf(
-			TEXT("Age %d  |  %s  |  Mood: %s  |  Rapport: %.0f  |  Attraction: %.0f"),
+			TEXT("Age %d | %s | Mood: %s | Rapport: %.0f | Attr: %.0f | AI: %s"),
 			Ctx.Age,
 			*Ctx.Job,
 			*Ctx.Mood,
 			Ctx.Rapport,
-			Ctx.Attraction
+			Ctx.Attraction,
+			*Sub->GetNpcAIStateName(Npc)
 		)));
 	}
 }
@@ -310,7 +310,7 @@ void SLifePlayRoleplayChatWidget::RebuildMessageList()
 		[
 			SNew(STextBlock)
 			.AutoWrapText(true)
-			.Text(FText::FromString(TEXT("Click Greet, Ask About Life, Flirt, Follow Me, or type your own line below. All stats & memories save offline automatically.")))
+			.Text(FText::FromString(TEXT("Use GTA Roleplay actions (Greet, Joke, Flirt, Gift £25, Follow Me, Call Over, Provoke) or type below. Powered by Unreal Engine Interaction AI & 3D Audio.")))
 			.ColorAndOpacity(FLinearColor(0.6f, 0.65f, 0.72f))
 		];
 		return;
@@ -351,12 +351,12 @@ void SLifePlayRoleplayChatWidget::AddMessageRow(const FLifePlayChatMessage& Msg)
 		if (!FMath::IsNearlyZero(Msg.AttractionDelta))
 		{
 			if (!Meta.IsEmpty()) Meta += TEXT(", ");
-			Meta += FString::Printf(TEXT("%+.0f attraction"), Msg.AttractionDelta);
+			Meta += FString::Printf(TEXT("%+.0f attr"), Msg.AttractionDelta);
 		}
 		if (!Msg.Action.IsEmpty() && Msg.Action != TEXT("none"))
 		{
 			if (!Meta.IsEmpty()) Meta += TEXT(", ");
-			Meta += TEXT("action: ") + Msg.Action;
+			Meta += TEXT("AI: ") + Msg.Action;
 		}
 		if (!Meta.IsEmpty())
 		{
@@ -441,6 +441,17 @@ void SLifePlayRoleplayChatWidget::HandleInputCommitted(const FText& /*NewText*/,
 	{
 		SubmitCurrentMessage();
 	}
+}
+
+FReply SLifePlayRoleplayChatWidget::HandleToggleAudioClicked()
+{
+	if (ULifePlayAIRoleplaySubsystem* Sub = Subsystem.Get())
+	{
+		Sub->ToggleAudioMute();
+		OnAudioMuteToggled.ExecuteIfBound();
+		RefreshHeader();
+	}
+	return FReply::Handled();
 }
 
 FReply SLifePlayRoleplayChatWidget::HandleCloseClicked()

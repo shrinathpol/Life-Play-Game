@@ -31,7 +31,7 @@
 		},
 		{
 			"Name": "ModelContextProtocol",
-			"Enabled": true
+			"Enabled": false
 		}
 	],
 	"TargetPlatforms": [

@@ -5,6 +5,19 @@
 #include "LifePlayAIRoleplaySubsystem.generated.h"
 
 class AActor;
+class USoundBase;
+class UWorld;
+
+UENUM(BlueprintType)
+enum class ELifePlayNpcAIState : uint8
+{
+	Idle UMETA(DisplayName = "Idle"),
+	Engaged UMETA(DisplayName = "Engaged"),
+	Following UMETA(DisplayName = "Following"),
+	Fleeing UMETA(DisplayName = "Fleeing"),
+	Approaching UMETA(DisplayName = "Approaching"),
+	Roaming UMETA(DisplayName = "Roaming")
+};
 
 USTRUCT(BlueprintType)
 struct LIFEPLAY_API FLifePlayNpcContext
@@ -68,9 +81,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
 );
 
 /**
- * 100% standalone offline NPC role-play & social action subsystem.
- * Reads live LifePlay character attributes, persists per-NPC conversation memory locally,
- * updates rapport/attraction, and executes physical world actions (follow/stay/face player).
+ * Native Unreal Engine 5.8 standalone NPC Interaction AI, Role-Play, and Audio Soundplay subsystem.
+ * Uses UE AAIController (Focus / MoveToActor / LineOfSightTo), UNavigationSystemV1,
+ * UCharacterMovementComponent pace-matching, and UGameplayStatics spatial/UI sound cues.
  */
 UCLASS()
 class LIFEPLAY_API ULifePlayAIRoleplaySubsystem : public UGameInstanceSubsystem
@@ -79,10 +92,38 @@ class LIFEPLAY_API ULifePlayAIRoleplaySubsystem : public UGameInstanceSubsystem
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 
 	UPROPERTY(BlueprintAssignable, Category = "LifePlay|Roleplay")
 	FOnLifePlayRoleplayReply OnRoleplayReplyReceived;
 
+	// --- Native UE Audio Soundplay ---
+	UFUNCTION(BlueprintCallable, Category = "LifePlay|Audio")
+	void ToggleAudioMute();
+
+	UFUNCTION(BlueprintPure, Category = "LifePlay|Audio")
+	bool IsAudioMuted() const { return bAudioMuted; }
+
+	USoundBase* GetOrLoadSound(FName SoundKey);
+	void PlayRoleplaySound(UWorld* World, FName SoundKey, const FVector* WorldLocation = nullptr, float Volume = 0.85f, float Pitch = 1.0f);
+
+	// --- Native UE Interaction AI ---
+	UFUNCTION(BlueprintPure, Category = "LifePlay|InteractionAI")
+	ELifePlayNpcAIState GetNpcAIState(AActor* NpcActor) const;
+
+	UFUNCTION(BlueprintPure, Category = "LifePlay|InteractionAI")
+	FString GetNpcAIStateName(AActor* NpcActor) const;
+
+	UFUNCTION(BlueprintCallable, Category = "LifePlay|InteractionAI")
+	void SetNpcAIState(AActor* NpcActor, ELifePlayNpcAIState NewState);
+
+	UFUNCTION(BlueprintPure, Category = "LifePlay|InteractionAI")
+	bool CanNpcSeePlayer(AActor* NpcActor, AActor* PlayerActor) const;
+
+	void TickInteractionAI(UWorld* World, AActor* PlayerActor, float DeltaTime);
+	FString GenerateStreetReaction(AActor* NpcActor, AActor* PlayerActor) const;
+
+	// --- LifePlay Context & Standalone Role-Play ---
 	UFUNCTION(BlueprintCallable, Category = "LifePlay|Roleplay")
 	FLifePlayNpcContext ExtractNpcContext(AActor* NpcActor) const;
 
@@ -112,16 +153,25 @@ public:
 
 private:
 	static constexpr int32 MaxHistoryTurns = 30;
+	bool bAudioMuted = false;
+	float AITickAccumulator = 0.0f;
+
+	UPROPERTY()
+	TMap<FName, TObjectPtr<USoundBase>> CachedSounds;
+
+	TMap<TWeakObjectPtr<AActor>, ELifePlayNpcAIState> NpcAIStates;
 	TMap<FString, TArray<FLifePlayChatMessage>> MemoryCache;
 
 	FString GetMemoryFilePath(const FString& NpcId) const;
 	TArray<FLifePlayChatMessage>& LoadOrGetMemory(const FString& NpcId);
 	void SaveMemoryToDisk(const FString& NpcId, const TArray<FLifePlayChatMessage>& Messages) const;
-	void ApplyStatDelta(AActor* NpcActor, float RapportDelta, float AttractionDelta) const;
+	void ApplyStatDelta(AActor* NpcActor, AActor* PlayerActor, float RapportDelta, float AttractionDelta, float MoneyTransfer) const;
 	FLifePlayChatMessage GenerateOfflineReply(
 		const FLifePlayNpcContext& Ctx,
 		const FString& PlayerName,
 		const FString& InputText,
-		int32 TurnIndex
+		int32 TurnIndex,
+		FName& OutSoundKey,
+		float& OutMoneyTransfer
 	) const;
 };
