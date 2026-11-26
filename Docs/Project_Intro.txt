@@ -1,0 +1,55 @@
+LifePlay [v1.0] [Vinfamy]
+
+LifePlay is a life simulation RPG being developed on Unreal Engine 4.
+
+Features:
+- Play in real world cities with real world buildings, using OpenStreetMap geodata (32 cities and counting)
+- Extensive character customizations for the player and NPCs, catering to all body shapes
+- Non-grindy gameplay combining lifesim and RPG elements, with user-friendly UI and controls
+- Come across a diverse range of life situations, sexual or otherwise, realistic or fantasy (189 scenes and counting) where your choice matters
+- 3D sex scenes that allow player control without forcing it, enhanced by well-written erotica 
+- Completely free and open source
+- Highly customizable, editable and moddable
+
+|Full Releases| |Content Updates| |Additional Maps| |Source Code| |Documents| 
+
+Although this is the first release, the game has actually been under development since the end of 2017, I just didn't want to release anything that wasn't worth people's time. Obviously more gameplay horus will come over time with more scenes, animations and models; however, all key features are already in there and the game itself feels quite 'complete'. You can already play and replay it for hours easily with different character builds in different cities.
+
+The game will always be free and open-source. All contents, with full sources, will always be publicly released to everyone as soon as they are ready. Nothing will ever be exclusive or put behind a paywall. You can support the game's development by spreading the word about it and by making mods for it. 
+
+Made by a modder himself, LifePlay is very moddable and even if you've never modded before, you could easily make a new scene, actor stat, action, sex description or dirty talk for it in a few minutes. Even in game, there are editors to generate character presets and map expansions. Check the Docs folder for instructions.
+
+The sexual content currently included in the base game is relatively vanilla (with the exception of some optional mild NTR). This is intentional because vanilla content is the common denominator for everyone. I will continue to focus on vanilla content for the next few months before going into more fetishes. Of course, nothing stops you from making mods featuring fetish content right now!
+
+The game isn't demanding in terms of PC specs, but if you do get low FPS, reduce the Post Process Quality in the Settings section of the main menu and there should be a dramatic improvement.
+
+Inspired by:
+- Games: The Sims series (my intial concept was 'A free, open-source and moddable The Sims with sex, dialogues and real world cities'), NewLife by SplendidOstrich, GirlLife by TFGSite
+- Mods: SexLab, OSex, Apropos, Schlongs of Skyrim, BodySlide, LooksMenu and Mod Organizer
+
+Special thanks to: the OpenStreetMap community, Manuel Bastioni and the MakeHuman community. Without their open-source projects, this game would not be possible.
+
+
+---
+This is the download page for all additional maps currently available for LifePlay. Obviously, the game itself needs to be downloaded and installed first from this page before these additional maps can be installed. I decided to keep the download pages separate as to not spam update notifications for the game's download page whenever I merely update or add a map.
+
+By default, all game releases already include the Central London map. These maps are entirely optional - pick and choose as you see fit.
+
+I built these maps based on OpenStreetMap geodata, which is a fantastic open source project, but without the huge financial resources that Google and co have, OpenStreetMap is not flawless. You'll find that some cities inevitably have better quantity and quality of data than others. Fear not! I have included the 'Randomize Unknown Buildings' option in the City Selection menu + you can manually edit each building in game. 
+
+|Full Releases| |Content Updates| |Additional Maps| |Source Code| |Documents| 
+
+How to install each map:
+- Extract the archive then copy and paste its content into {GameInstallationFolder}\LifePlay\Content\Heavy\StreetMap
+- Make sure that {CityName}.uasset and {CityName}.uexp go inside StreetMap folder, and another (much heavier) pair of {CityName}.uasset and {CityName}.uexp go inside StreetMap\Static subfolder.
+(For those curious: the first pair holds the map data, while the second pair holds the 3d shapes of the map itself)
+
+List of maps completed so far:
+- Central London (included by default)
+- Batch 1 (x31, 14 April): Amsterdam, Barcelona, Berlin, Budapest, Buenos Aires, Cambridge, Chicago, Hong Kong, Houston, Istanbul, Johannesburg, Los Angeles, Mexico City, Milan, Montreal, Moscow, Mumbai, Nairobi, New York City, Oslo, Paris, Rio de Janeiro, San Jose, Singapore, Sydney, Tel Aviv, Tokyo, Toronto, Vancouver, and Vienna.
+- Batch 2: Request your cities!
+
+Which cities do you want to be playable in LifePlay next? Keep the requests coming. Frequently requested cities should make an appearance at some point. I will build and release new maps in batches of around 20 - 30 cities each time.
+
+Special thanks to the OpenStreetMap community, without whose geodata, these maps wouldn't be possible.
+
