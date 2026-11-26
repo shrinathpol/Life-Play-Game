@@ -18,7 +18,8 @@ public class LifePlay : ModuleRules
 			"Json",
 			"JsonUtilities",
 			"AIModule",
-			"NavigationSystem"
+			"NavigationSystem",
+			"StreetMapRuntime"
 		});
 
 		// Uncomment if you are using Slate UI

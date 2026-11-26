@@ -29,6 +29,7 @@
 | **`Mouse` / `Scroll`** | Orbit camera / Zoom distance |
 | **`LeftAlt`** *(hold)* | Temporarily unlock cursor in GTA Mode |
 | **`E` / `T`** | Open / Close **Roleplay & UE Interaction AI Panel** (`Esc` closes) |
+| **`N`** | Open / Close **GTA World Map & GPS Waypoint** (Right-click sets GPS, Left-drag pans, Wheel zooms) |
 | **`F`** | Call nearest NPC over to you (UE NavMesh AI) |
 | **`M`** | Toggle Game Audio **ON / OFF** |
 | **`Ctrl + C`** | Switch City (`CentralLondon` recommended) |

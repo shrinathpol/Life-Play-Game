@@ -8,6 +8,7 @@
 class ACharacter;
 class APawn;
 class APlayerController;
+class SLifePlayGtaMapWidget;
 class SLifePlayRoleplayChatWidget;
 class SBorder;
 class STextBlock;
@@ -16,6 +17,8 @@ class UAudioComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UTexture2D;
+struct FGtaMapData;
+struct FGtaMapViewState;
 struct FSlateDynamicImageBrush;
 
 /**
@@ -41,8 +44,8 @@ public:
 
 /**
  * Enables GTA-style third-person character control (G), standalone Role-Play &
- * Unreal Engine Interaction AI (E / T), NavMesh NPC call-over (F), street ambience (M),
- * sleek v1.0 GTA HUD branding, and automatic cleanup of legacy MainMenu social/donate widgets.
+ * UE Interaction AI (E / T), GTA Radar Minimap & World GPS Map (N), NavMesh NPC call-over (F),
+ * street ambience & audio mute (M), and clean v1.0 MainMenu branding.
  */
 UCLASS()
 class LIFEPLAY_API ULifePlayGTAControllerSubsystem : public UTickableWorldSubsystem
@@ -68,13 +71,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LifePlay|Roleplay")
 	void ToggleRoleplayChat();
 
+	UFUNCTION(BlueprintCallable, Category = "LifePlay|Map")
+	void ToggleWorldMap();
+
 	void CloseRoleplayChat();
+	void CloseWorldMap();
 	void SyncAmbientAudioState();
+	void SetGpsWaypoint(bool bHasWaypoint, FVector2D WorldPos2D);
+	void TeleportPlayerToWaypoint();
 
 private:
 	bool bGtaModeEnabled = false;
 	bool bAltCursorUnlock = false;
 	bool bChatOpen = false;
+	bool bFullMapOpen = false;
 	FString CurrentPaceLabel = TEXT("IDLE");
 
 	float CameraYaw = 0.0f;
@@ -107,6 +117,13 @@ private:
 	TSharedPtr<SWidget> ChatContainer;
 	TSharedPtr<SLifePlayRoleplayChatWidget> ChatWidget;
 
+	TSharedPtr<FGtaMapData> CachedStreetMapData;
+	TSharedPtr<FGtaMapViewState> MapViewState;
+	FString CachedStreetMapWorldName;
+	TSharedPtr<SWidget> MinimapContainer;
+	TSharedPtr<SWidget> FullMapContainer;
+	TSharedPtr<SLifePlayGtaMapWidget> FullMapWidget;
+
 	float NpcScanTimer = 0.0f;
 	float MenuCleanTimer = 0.0f;
 	float AmbientRoamTimer = 0.0f;
@@ -116,6 +133,8 @@ private:
 
 	void LoadBrandLogoBrush();
 	void CleanAndRebrandGameWidgets(UWorld* World);
+	void RefreshStreetMapCache(UWorld* World);
+	void UpdateMapViewState(UWorld* World, APlayerController* PC, ACharacter* PlayerChar, class ULifePlayAIRoleplaySubsystem* AISub);
 	ACharacter* ResolvePlayerCharacter(UWorld* World, APlayerController* PC);
 	ACharacter* FindNearestNpc(UWorld* World, const FVector& Origin, float MaxDistance) const;
 	AGtaCameraRigActor* EnsureCameraRig(UWorld* World);

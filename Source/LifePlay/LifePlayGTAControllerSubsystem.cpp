@@ -5,6 +5,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateDynamicImageBrush.h"
 #include "Camera/CameraComponent.h"
+#include "CollisionQueryParams.h"
 #include "Components/AudioComponent.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
@@ -30,8 +31,11 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "SLifePlayGtaMapWidget.h"
 #include "SLifePlayRoleplayChatWidget.h"
 #include "Sound/SoundBase.h"
+#include "StreetMap.h"
+#include "StreetMapComponent.h"
 #include "Styling/CoreStyle.h"
 #include "TextureResource.h"
 #include "UObject/UObjectIterator.h"
@@ -79,21 +83,31 @@ TStatId ULifePlayGTAControllerSubsystem::GetStatId() const
 void ULifePlayGTAControllerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	MapViewState = MakeShared<FGtaMapViewState>();
 }
 
 void ULifePlayGTAControllerSubsystem::Deinitialize()
 {
 	CloseRoleplayChat();
+	CloseWorldMap();
 	StartOrStopStreetAmbience(GetWorld(), false);
 	if (bGtaModeEnabled)
 	{
 		SetGtaModeEnabled(false);
 	}
-	if (GEngine && GEngine->GameViewport && HudContainer.IsValid())
+	if (GEngine && GEngine->GameViewport)
 	{
-		GEngine->GameViewport->RemoveViewportWidgetContent(HudContainer.ToSharedRef());
+		if (HudContainer.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(HudContainer.ToSharedRef());
+		}
+		if (MinimapContainer.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(MinimapContainer.ToSharedRef());
+		}
 	}
 	HudContainer.Reset();
+	MinimapContainer.Reset();
 	BottomHudBorder.Reset();
 	TopStatusModeText.Reset();
 	TopStatusNpcText.Reset();
@@ -101,6 +115,8 @@ void ULifePlayGTAControllerSubsystem::Deinitialize()
 	HudTextBlock.Reset();
 	BrandLogoBrush.Reset();
 	BrandLogoTexture = nullptr;
+	CachedStreetMapData.Reset();
+	MapViewState.Reset();
 	ProximityReactionTimestamps.Empty();
 	Super::Deinitialize();
 }
@@ -252,6 +268,332 @@ void ULifePlayGTAControllerSubsystem::CleanAndRebrandGameWidgets(UWorld* World)
 	}
 }
 
+void ULifePlayGTAControllerSubsystem::RefreshStreetMapCache(UWorld* World)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	const FString CurrentMap = World->GetMapName();
+	if (CachedStreetMapData.IsValid() && CachedStreetMapWorldName == CurrentMap && CachedStreetMapData->Polylines.Num() > 0)
+	{
+		return;
+	}
+
+	TSharedPtr<FGtaMapData> NewData = MakeShared<FGtaMapData>();
+	NewData->MapLabel = CurrentMap;
+	bool bInitializedBounds = false;
+
+	auto AddPoly = [&](const TArray<FVector2D>& LocalPts, const FTransform& Xform, bool bClosed, const FLinearColor& Color, float Thickness)
+	{
+		if (LocalPts.Num() < 2)
+		{
+			return;
+		}
+		FGtaMapPolyline Poly;
+		Poly.Color = Color;
+		Poly.Thickness = Thickness;
+		Poly.Points.Reserve(LocalPts.Num() + (bClosed ? 1 : 0));
+
+		bool bFirst = true;
+		for (const FVector2D& Pt : LocalPts)
+		{
+			const FVector W = Xform.TransformPosition(FVector(Pt.X, Pt.Y, 0.0f));
+			const FVector2D W2(W.X, W.Y);
+			Poly.Points.Add(W2);
+			if (bFirst)
+			{
+				Poly.BoundsMin = W2;
+				Poly.BoundsMax = W2;
+				bFirst = false;
+			}
+			else
+			{
+				Poly.BoundsMin.X = FMath::Min(Poly.BoundsMin.X, W2.X);
+				Poly.BoundsMin.Y = FMath::Min(Poly.BoundsMin.Y, W2.Y);
+				Poly.BoundsMax.X = FMath::Max(Poly.BoundsMax.X, W2.X);
+				Poly.BoundsMax.Y = FMath::Max(Poly.BoundsMax.Y, W2.Y);
+			}
+		}
+
+		if (bClosed && Poly.Points.Num() >= 3)
+		{
+			Poly.Points.Add(Poly.Points[0]);
+		}
+
+		if (!bInitializedBounds)
+		{
+			NewData->WorldMin = Poly.BoundsMin;
+			NewData->WorldMax = Poly.BoundsMax;
+			bInitializedBounds = true;
+		}
+		else
+		{
+			NewData->WorldMin.X = FMath::Min(NewData->WorldMin.X, Poly.BoundsMin.X);
+			NewData->WorldMin.Y = FMath::Min(NewData->WorldMin.Y, Poly.BoundsMin.Y);
+			NewData->WorldMax.X = FMath::Max(NewData->WorldMax.X, Poly.BoundsMax.X);
+			NewData->WorldMax.Y = FMath::Max(NewData->WorldMax.Y, Poly.BoundsMax.Y);
+		}
+		NewData->Polylines.Add(MoveTemp(Poly));
+	};
+
+	for (TObjectIterator<UStreetMapComponent> It; It; ++It)
+	{
+		UStreetMapComponent* Comp = *It;
+		if (!Comp || !IsValid(Comp) || Comp->GetWorld() != World)
+		{
+			continue;
+		}
+		const UStreetMap* MapAsset = Comp->GetStreetMap();
+		if (!MapAsset)
+		{
+			continue;
+		}
+
+		const FTransform Xform = Comp->GetComponentTransform();
+
+		for (const FStreetMapPark& Park : MapAsset->GetParks())
+		{
+			AddPoly(Park.ParkPoints, Xform, true, FLinearColor(0.08f, 0.28f, 0.14f, 0.65f), 1.4f);
+		}
+		for (const FStreetMapWater& Water : MapAsset->GetWaters())
+		{
+			AddPoly(Water.WaterPoints, Xform, true, FLinearColor(0.08f, 0.26f, 0.52f, 0.78f), 1.6f);
+		}
+		for (const FStreetMapBuilding& Bldg : MapAsset->GetBuildings())
+		{
+			AddPoly(Bldg.BuildingPoints, Xform, true, FLinearColor(0.14f, 0.20f, 0.28f, 0.65f), 1.0f);
+		}
+		for (const FStreetMapRoad& Road : MapAsset->GetRoads())
+		{
+			FLinearColor Color(0.32f, 0.38f, 0.46f, 0.85f);
+			float Thickness = 1.6f;
+			switch (Road.RoadType)
+			{
+			case EStreetMapRoadType::Highway:
+				Color = FLinearColor(0.86f, 0.66f, 0.28f, 0.92f);
+				Thickness = 3.2f;
+				break;
+			case EStreetMapRoadType::MajorRoad:
+				Color = FLinearColor(0.58f, 0.66f, 0.74f, 0.90f);
+				Thickness = 2.4f;
+				break;
+			default:
+				break;
+			}
+			AddPoly(Road.RoadPoints, Xform, false, Color, Thickness);
+		}
+	}
+
+	CachedStreetMapData = NewData;
+	CachedStreetMapWorldName = CurrentMap;
+	if (MapViewState.IsValid())
+	{
+		MapViewState->MapData = NewData;
+		MapViewState->LocationLabel = CurrentMap;
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::UpdateMapViewState(UWorld* World, APlayerController* PC, ACharacter* PlayerChar, ULifePlayAIRoleplaySubsystem* AISub)
+{
+	if (!MapViewState.IsValid() || !PlayerChar || !IsValid(PlayerChar))
+	{
+		return;
+	}
+
+	const FVector PlayerLoc = PlayerChar->GetActorLocation();
+	MapViewState->PlayerPos2D = FVector2D(PlayerLoc.X, PlayerLoc.Y);
+	MapViewState->PlayerYawDeg = PlayerChar->GetActorRotation().Yaw;
+	MapViewState->CameraYawDeg = bGtaModeEnabled
+		? CameraYaw
+		: ((PC && PC->PlayerCameraManager) ? PC->PlayerCameraManager->GetCameraRotation().Yaw : MapViewState->PlayerYawDeg);
+
+	MapViewState->NpcBlips.Reset();
+	if (World)
+	{
+		for (TActorIterator<ACharacter> It(World); It; ++It)
+		{
+			ACharacter* Npc = *It;
+			if (!IsValid(Npc) || Npc == PlayerChar || !ULifePlayAIRoleplaySubsystem::IsPersonActor(Npc) || ULifePlayAIRoleplaySubsystem::IsPlayerPersonActor(Npc))
+			{
+				continue;
+			}
+			if (!bFullMapOpen && FVector::DistSquared2D(PlayerLoc, Npc->GetActorLocation()) > (4000.0f * 4000.0f))
+			{
+				continue;
+			}
+
+			FGtaMapBlip Blip;
+			const FVector NpcLoc = Npc->GetActorLocation();
+			Blip.WorldPos = FVector2D(NpcLoc.X, NpcLoc.Y);
+			Blip.Label = ULifePlayAIRoleplaySubsystem::GetNpcDisplayName(Npc);
+			Blip.Color = FLinearColor(0.92f, 0.94f, 0.98f, 0.95f);
+
+			if (AISub)
+			{
+				const ELifePlayNpcAIState State = AISub->GetNpcAIState(Npc);
+				const FLifePlayNpcContext Ctx = AISub->ExtractNpcContext(Npc);
+				if (State == ELifePlayNpcAIState::Following || State == ELifePlayNpcAIState::Approaching)
+				{
+					Blip.Color = FLinearColor(0.18f, 0.85f, 1.0f, 1.0f);
+				}
+				else if (State == ELifePlayNpcAIState::Fleeing || Ctx.Rapport < -15.0f)
+				{
+					Blip.Color = FLinearColor(0.98f, 0.28f, 0.28f, 1.0f);
+				}
+				else if (Ctx.Rapport >= 15.0f)
+				{
+					Blip.Color = FLinearColor(1.0f, 0.78f, 0.25f, 1.0f);
+				}
+			}
+			MapViewState->NpcBlips.Add(MoveTemp(Blip));
+		}
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::SetGpsWaypoint(bool bHasWaypoint, FVector2D WorldPos2D)
+{
+	if (!MapViewState.IsValid())
+	{
+		return;
+	}
+	MapViewState->bHasWaypoint = bHasWaypoint;
+	MapViewState->WaypointWorld2D = WorldPos2D;
+
+	if (UWorld* World = GetWorld())
+	{
+		if (ULifePlayAIRoleplaySubsystem* AISub = World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<ULifePlayAIRoleplaySubsystem>() : nullptr)
+		{
+			AISub->PlayRoleplaySound(World, FName(bHasWaypoint ? TEXT("ui_positive") : TEXT("ui_click")), nullptr, 0.75f, 1.0f);
+		}
+	}
+	if (bHasWaypoint && CachedPlayerChar.IsValid())
+	{
+		const float Meters = FVector2D::Distance(MapViewState->PlayerPos2D, WorldPos2D) / 100.0f;
+		ShowHudToast(FString::Printf(TEXT("GPS Waypoint set (%.0fm away) — follow the magenta radar line!"), Meters), 3.5f);
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::TeleportPlayerToWaypoint()
+{
+	UWorld* World = GetWorld();
+	ACharacter* PlayerChar = CachedPlayerChar.Get();
+	if (!World || !PlayerChar || !IsValid(PlayerChar) || !MapViewState.IsValid() || !MapViewState->bHasWaypoint)
+	{
+		ShowHudToast(TEXT("Right-click anywhere on the World Map first to place a GPS Waypoint!"), 3.5f);
+		return;
+	}
+
+	const FVector2D Target2D = MapViewState->WaypointWorld2D;
+	float TargetZ = PlayerChar->GetActorLocation().Z + 50.0f;
+
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(LifePlayGpsTeleport), false);
+	Params.AddIgnoredActor(PlayerChar);
+	if (World->LineTraceSingleByChannel(Hit, FVector(Target2D.X, Target2D.Y, 15000.0f), FVector(Target2D.X, Target2D.Y, -5000.0f), ECC_WorldStatic, Params))
+	{
+		TargetZ = Hit.ImpactPoint.Z + 96.0f;
+	}
+
+	PlayerChar->SetActorLocation(FVector(Target2D.X, Target2D.Y, TargetZ), false, nullptr, ETeleportType::TeleportPhysics);
+	if (AGtaCameraRigActor* Rig = CameraRig.Get())
+	{
+		Rig->SetActorLocation(PlayerChar->GetActorLocation());
+	}
+
+	if (ULifePlayAIRoleplaySubsystem* AISub = World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<ULifePlayAIRoleplaySubsystem>() : nullptr)
+	{
+		AISub->PlayRoleplaySound(World, FName(TEXT("ui_quest")), nullptr, 0.85f, 1.0f);
+	}
+	SetGpsWaypoint(false, FVector2D::ZeroVector);
+	CloseWorldMap();
+	ShowHudToast(TEXT("Fast traveled to GPS Waypoint!"), 3.0f);
+}
+
+void ULifePlayGTAControllerSubsystem::ToggleWorldMap()
+{
+	if (bFullMapOpen)
+	{
+		CloseWorldMap();
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World || !GEngine || !GEngine->GameViewport || !MapViewState.IsValid())
+	{
+		return;
+	}
+
+	APlayerController* PC = World->GetFirstPlayerController();
+	ACharacter* PlayerChar = ResolvePlayerCharacter(World, PC);
+	if (!PlayerChar)
+	{
+		ShowHudToast(TEXT("Start or load a game first before opening the GTA World Map."), 3.5f);
+		return;
+	}
+
+	RefreshStreetMapCache(World);
+	UpdateMapViewState(World, PC, PlayerChar, World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<ULifePlayAIRoleplaySubsystem>() : nullptr);
+
+	if (bChatOpen)
+	{
+		CloseRoleplayChat();
+	}
+
+	FullMapWidget = SNew(SLifePlayGtaMapWidget)
+		.ViewState(MapViewState)
+		.bFullScreen(true)
+		.OnWaypointChanged(FOnGtaMapWaypointChanged::CreateUObject(this, &ULifePlayGTAControllerSubsystem::SetGpsWaypoint))
+		.OnRequestTeleport(FSimpleDelegate::CreateUObject(this, &ULifePlayGTAControllerSubsystem::TeleportPlayerToWaypoint))
+		.OnRequestClose(FSimpleDelegate::CreateUObject(this, &ULifePlayGTAControllerSubsystem::CloseWorldMap));
+
+	FullMapContainer = SNew(SOverlay)
+		+ SOverlay::Slot()
+		[
+			FullMapWidget.ToSharedRef()
+		];
+
+	GEngine->GameViewport->AddViewportWidgetContent(FullMapContainer.ToSharedRef(), 45);
+	bFullMapOpen = true;
+
+	if (ULifePlayAIRoleplaySubsystem* AISub = World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<ULifePlayAIRoleplaySubsystem>() : nullptr)
+	{
+		AISub->PlayRoleplaySound(World, FName(TEXT("ui_click")), nullptr, 0.75f, 1.05f);
+	}
+	if (PC)
+	{
+		ApplyInputLockForGta(PC, false);
+	}
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetKeyboardFocus(FullMapWidget, EFocusCause::SetDirectly);
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::CloseWorldMap()
+{
+	if (!bFullMapOpen)
+	{
+		return;
+	}
+	if (GEngine && GEngine->GameViewport && FullMapContainer.IsValid())
+	{
+		GEngine->GameViewport->RemoveViewportWidgetContent(FullMapContainer.ToSharedRef());
+	}
+	FullMapContainer.Reset();
+	FullMapWidget.Reset();
+	bFullMapOpen = false;
+
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			ApplyInputLockForGta(PC, bGtaModeEnabled && !bAltCursorUnlock);
+		}
+	}
+}
+
 void ULifePlayGTAControllerSubsystem::StartOrStopStreetAmbience(UWorld* World, bool bShouldPlay)
 {
 	if (!bShouldPlay)
@@ -266,10 +608,7 @@ void ULifePlayGTAControllerSubsystem::StartOrStopStreetAmbience(UWorld* World, b
 		return;
 	}
 
-	if (!World)
-	{
-		return;
-	}
+	if (!World) return;
 
 	ULifePlayAIRoleplaySubsystem* AISub = World->GetGameInstance()
 		? World->GetGameInstance()->GetSubsystem<ULifePlayAIRoleplaySubsystem>()
@@ -284,10 +623,7 @@ void ULifePlayGTAControllerSubsystem::StartOrStopStreetAmbience(UWorld* World, b
 	{
 		if (IsValid(Existing))
 		{
-			if (!Existing->IsPlaying())
-			{
-				Existing->FadeIn(0.4f, 0.22f);
-			}
+			if (!Existing->IsPlaying()) Existing->FadeIn(0.4f, 0.22f);
 			return;
 		}
 	}
@@ -295,10 +631,7 @@ void ULifePlayGTAControllerSubsystem::StartOrStopStreetAmbience(UWorld* World, b
 	if (USoundBase* StreetSound = AISub->GetOrLoadSound(FName(TEXT("street"))))
 	{
 		UAudioComponent* Spawned = UGameplayStatics::SpawnSound2D(World, StreetSound, 0.22f, 1.0f, 0.0f, nullptr, false, false);
-		if (Spawned)
-		{
-			AmbientAudioComp = Spawned;
-		}
+		if (Spawned) AmbientAudioComp = Spawned;
 	}
 }
 
@@ -310,15 +643,9 @@ void ULifePlayGTAControllerSubsystem::SyncAmbientAudioState()
 
 bool ULifePlayGTAControllerSubsystem::IsTextInputFocused() const
 {
-	if (!FSlateApplication::IsInitialized())
-	{
-		return false;
-	}
+	if (!FSlateApplication::IsInitialized()) return false;
 	TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetKeyboardFocusedWidget();
-	if (!Focused.IsValid())
-	{
-		return false;
-	}
+	if (!Focused.IsValid()) return false;
 	const FName WidgetType = Focused->GetType();
 	return WidgetType == FName(TEXT("SEditableText"))
 		|| WidgetType == FName(TEXT("SEditableTextBox"))
@@ -327,7 +654,24 @@ bool ULifePlayGTAControllerSubsystem::IsTextInputFocused() const
 
 void ULifePlayGTAControllerSubsystem::EnsureHudOverlay()
 {
-	if (HudContainer.IsValid() || !GEngine || !GEngine->GameViewport)
+	if (!GEngine || !GEngine->GameViewport)
+	{
+		return;
+	}
+
+	if (!MinimapContainer.IsValid() && MapViewState.IsValid())
+	{
+		MinimapContainer = SNew(SOverlay)
+			+ SOverlay::Slot()
+			[
+				SNew(SLifePlayGtaMapWidget)
+				.ViewState(MapViewState)
+				.bFullScreen(false)
+			];
+		GEngine->GameViewport->AddViewportWidgetContent(MinimapContainer.ToSharedRef(), 22);
+	}
+
+	if (HudContainer.IsValid())
 	{
 		return;
 	}
@@ -498,10 +842,7 @@ void ULifePlayGTAControllerSubsystem::UpdateHudText()
 		TopStatusAudioText->SetText(FText::FromString(bMuted ? TEXT("AUDIO: MUTED [M]") : TEXT("AUDIO: 3D SOUND & STREET AMBIENCE [M]")));
 	}
 
-	if (!HudTextBlock.IsValid())
-	{
-		return;
-	}
+	if (!HudTextBlock.IsValid()) return;
 
 	if (ToastTimer > 0.0f && !ActiveStreetToast.IsEmpty())
 	{
@@ -521,13 +862,13 @@ void ULifePlayGTAControllerSubsystem::UpdateHudText()
 	if (bGtaModeEnabled)
 	{
 		HudTextBlock->SetText(FText::FromString(TEXT(
-			"[WASD] Move  •  [Shift] Sprint  •  [Ctrl] Walk  •  [Alt] Cursor  •  [E/T] Roleplay  •  [F] Call NPC  •  [M] Mute  •  [G] Exit"
+			"[WASD] Move  •  [Shift] Sprint  •  [Alt] Cursor  •  [E/T] Roleplay  •  [N] GTA Map  •  [F] Call NPC  •  [M] Mute  •  [G] Exit"
 		)));
 	}
 	else
 	{
 		HudTextBlock->SetText(FText::FromString(TEXT(
-			"[G] GTA Third-Person Play  •  [E/T] NPC Roleplay  •  [F] Call NPC Over  •  [M] Mute Audio"
+			"[G] GTA Play  •  [E/T] NPC Roleplay  •  [N] GTA World Map  •  [F] Call NPC  •  [M] Mute Audio"
 		)));
 	}
 }
@@ -536,10 +877,7 @@ ACharacter* ULifePlayGTAControllerSubsystem::ResolvePlayerCharacter(UWorld* Worl
 {
 	if (ACharacter* Existing = CachedPlayerChar.Get())
 	{
-		if (IsValid(Existing))
-		{
-			return Existing;
-		}
+		if (IsValid(Existing)) return Existing;
 	}
 
 	auto ReadPlayerProp = [](UObject* Container) -> ACharacter*
@@ -762,7 +1100,7 @@ void ULifePlayGTAControllerSubsystem::SetGtaModeEnabled(bool bEnable)
 
 		StartOrStopStreetAmbience(World, true);
 
-		if (!bChatOpen) ApplyInputLockForGta(PC, true);
+		if (!bChatOpen && !bFullMapOpen) ApplyInputLockForGta(PC, true);
 	}
 	else
 	{
@@ -809,6 +1147,11 @@ void ULifePlayGTAControllerSubsystem::ToggleRoleplayChat()
 	{
 		CloseRoleplayChat();
 		return;
+	}
+
+	if (bFullMapOpen)
+	{
+		CloseWorldMap();
 	}
 
 	UWorld* World = GetWorld();
@@ -876,7 +1219,7 @@ void ULifePlayGTAControllerSubsystem::CloseRoleplayChat()
 	{
 		if (APlayerController* PC = World->GetFirstPlayerController())
 		{
-			ApplyInputLockForGta(PC, bGtaModeEnabled && !bAltCursorUnlock);
+			ApplyInputLockForGta(PC, bGtaModeEnabled && !bAltCursorUnlock && !bFullMapOpen);
 		}
 	}
 }
@@ -886,7 +1229,6 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// Strip social/donate links & update MainMenu logo/version cleanly
 	MenuCleanTimer += DeltaTime;
 	if (MenuCleanTimer >= 0.5f)
 	{
@@ -926,6 +1268,8 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 	if (NpcScanTimer >= 0.25f)
 	{
 		NpcScanTimer = 0.0f;
+		RefreshStreetMapCache(World);
+
 		const FVector Origin = PlayerChar
 			? PlayerChar->GetActorLocation()
 			: (PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector);
@@ -952,6 +1296,11 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 		}
 	}
 
+	if (PlayerChar)
+	{
+		UpdateMapViewState(World, PC, PlayerChar, AISub);
+	}
+
 	if (bGtaModeEnabled && AISub && PlayerChar)
 	{
 		AmbientRoamTimer += DeltaTime;
@@ -968,6 +1317,15 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
+	if (bFullMapOpen)
+	{
+		if (PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::N))
+		{
+			CloseWorldMap();
+		}
+		return;
+	}
+
 	const bool bCtrlDown = PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl);
 	const bool bAltDown = PC->IsInputKeyDown(EKeys::LeftAlt) || PC->IsInputKeyDown(EKeys::RightAlt);
 	const bool bShiftDown = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
@@ -981,6 +1339,11 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 		else if (PC->WasInputKeyJustPressed(EKeys::E) || PC->WasInputKeyJustPressed(EKeys::T))
 		{
 			ToggleRoleplayChat();
+			return;
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::N))
+		{
+			ToggleWorldMap();
 			return;
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::F) && AISub && PlayerChar)
