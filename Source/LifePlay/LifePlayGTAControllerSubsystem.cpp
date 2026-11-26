@@ -3,13 +3,14 @@
 #include "AIController.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
-#include "Brushes/SlateDynamicImageBrush.h"
+#include "Brushes/SlateImageBrush.h"
 #include "Camera/CameraComponent.h"
 #include "CollisionQueryParams.h"
 #include "Components/AudioComponent.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/PanelWidget.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/TextBlock.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -37,12 +38,15 @@
 #include "StreetMap.h"
 #include "StreetMapComponent.h"
 #include "Styling/CoreStyle.h"
+#include "Styling/SlateBrush.h"
 #include "TextureResource.h"
+#include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
@@ -83,7 +87,20 @@ TStatId ULifePlayGTAControllerSubsystem::GetStatId() const
 void ULifePlayGTAControllerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	GAreScreenMessagesEnabled = false;
 	MapViewState = MakeShared<FGtaMapViewState>();
+	bOnMainMenu = false;
+	bMainMenuRebranded = false;
+	bLoadingCurtainActive = false;
+	bLoadingCurtainDismissed = false;
+	bTitleCharClothed = false;
+	LoadingElapsed = 0.0f;
+	BufferTimeRemaining = 2.0f;
+	LoadingProgress = 0.05f;
+	LoadingPrepTimer = 0.0f;
+	DressRetryTimer = 0.0f;
+	DressRetryCount = 0;
+	LoadingStatusText = TEXT("Loading game assets & clothing...");
 }
 
 void ULifePlayGTAControllerSubsystem::Deinitialize()
@@ -97,6 +114,10 @@ void ULifePlayGTAControllerSubsystem::Deinitialize()
 	}
 	if (GEngine && GEngine->GameViewport)
 	{
+		if (LoadingCurtainContainer.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(LoadingCurtainContainer.ToSharedRef());
+		}
 		if (HudContainer.IsValid())
 		{
 			GEngine->GameViewport->RemoveViewportWidgetContent(HudContainer.ToSharedRef());
@@ -106,6 +127,7 @@ void ULifePlayGTAControllerSubsystem::Deinitialize()
 			GEngine->GameViewport->RemoveViewportWidgetContent(MinimapContainer.ToSharedRef());
 		}
 	}
+	LoadingCurtainContainer.Reset();
 	HudContainer.Reset();
 	MinimapContainer.Reset();
 	BottomHudBorder.Reset();
@@ -163,11 +185,11 @@ void ULifePlayGTAControllerSubsystem::LoadBrandLogoBrush()
 	Tex->UpdateResource();
 
 	BrandLogoTexture = Tex;
-	BrandLogoBrush = MakeShared<FSlateDynamicImageBrush>(
-		Tex,
-		FVector2D(static_cast<float>(Width), static_cast<float>(Height)),
-		FName(TEXT("LifePlayBrandLogo"))
-	);
+	TSharedPtr<FSlateBrush> NewBrush = MakeShared<FSlateBrush>();
+	NewBrush->SetResourceObject(Tex);
+	NewBrush->SetImageSize(FVector2D(static_cast<float>(Width), static_cast<float>(Height)));
+	NewBrush->DrawAs = ESlateBrushDrawType::Image;
+	BrandLogoBrush = NewBrush;
 }
 
 void ULifePlayGTAControllerSubsystem::CleanAndRebrandGameWidgets(UWorld* World)
@@ -195,6 +217,11 @@ void ULifePlayGTAControllerSubsystem::CleanAndRebrandGameWidgets(UWorld* World)
 		if (!UW || !IsValid(UW) || UW->GetWorld() != World || !UW->IsInViewport() || !UW->WidgetTree)
 		{
 			continue;
+		}
+
+		if (UW->GetClass()->GetName().Contains(TEXT("MainMenu")))
+		{
+			bMainMenuRebranded = true;
 		}
 
 		UW->WidgetTree->ForEachWidget([&](UWidget* Child)
@@ -265,6 +292,270 @@ void ULifePlayGTAControllerSubsystem::CleanAndRebrandGameWidgets(UWorld* World)
 				}
 			}
 		});
+	}
+}
+
+bool ULifePlayGTAControllerSubsystem::IsMainMenuVisible(UWorld* World) const
+{
+	if (!World)
+	{
+		return false;
+	}
+
+	for (TObjectIterator<UUserWidget> It; It; ++It)
+	{
+		UUserWidget* UW = *It;
+		if (!UW || !IsValid(UW) || UW->GetWorld() != World || !UW->IsInViewport())
+		{
+			continue;
+		}
+		if (UW->GetClass()->GetName().Contains(TEXT("MainMenu")))
+		{
+			const ESlateVisibility Vis = UW->GetVisibility();
+			if (Vis != ESlateVisibility::Collapsed && Vis != ESlateVisibility::Hidden)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void ULifePlayGTAControllerSubsystem::EnsureTitleCharacterClothed(UWorld* World)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<ACharacter> It(World); It; ++It)
+	{
+		ACharacter* Char = *It;
+		if (!IsValid(Char) || !ULifePlayAIRoleplaySubsystem::IsPersonActor(Char))
+		{
+			continue;
+		}
+
+		TArray<USkeletalMeshComponent*> SkelComps;
+		Char->GetComponents<USkeletalMeshComponent>(SkelComps);
+
+		int32 ClothingCount = 0;
+		for (USkeletalMeshComponent* Comp : SkelComps)
+		{
+			if (!Comp || !IsValid(Comp))
+			{
+				continue;
+			}
+
+			const FString CompLower = Comp->GetName().ToLower();
+			if (CompLower.Contains(TEXT("penis")) || CompLower.Contains(TEXT("genital")))
+			{
+				if (bOnMainMenu || bLoadingCurtainActive)
+				{
+					Comp->SetVisibility(false, true);
+					Comp->SetHiddenInGame(true, true);
+				}
+				continue;
+			}
+
+			if (Comp == Char->GetMesh() || !Comp->GetSkeletalMeshAsset() || !Comp->IsVisible() || Comp->bHiddenInGame)
+			{
+				continue;
+			}
+
+			if (CompLower.Contains(TEXT("hair"))
+				|| CompLower.Contains(TEXT("eye"))
+				|| CompLower.Contains(TEXT("teeth"))
+				|| CompLower.Contains(TEXT("lash"))
+				|| CompLower.Contains(TEXT("brow"))
+				|| CompLower.Contains(TEXT("head"))
+				|| CompLower.Contains(TEXT("face"))
+				|| CompLower.Contains(TEXT("pubic")))
+			{
+				continue;
+			}
+
+			++ClothingCount;
+		}
+
+		if (ClothingCount > 0)
+		{
+			bTitleCharClothed = true;
+			continue;
+		}
+
+		if (bOnMainMenu && DressRetryCount < 4 && DressRetryTimer <= 0.0f)
+		{
+			static const TCHAR* DressFuncNames[] = { TEXT("QuickDress"), TEXT("GiveDefaultClothes"), TEXT("Redress"), TEXT("Dress") };
+			for (const TCHAR* FuncName : DressFuncNames)
+			{
+				if (UFunction* Func = Char->FindFunction(FName(FuncName)))
+				{
+					if (Func->NumParms == 0)
+					{
+						Char->ProcessEvent(Func, nullptr);
+						++DressRetryCount;
+						DressRetryTimer = 1.0f;
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::EnsureLoadingCurtain()
+{
+	if (LoadingCurtainContainer.IsValid() || !GEngine || !GEngine->GameViewport)
+	{
+		return;
+	}
+
+	LoadBrandLogoBrush();
+	const FSlateBrush* WhiteBrush = FCoreStyle::Get().GetBrush("WhiteBrush");
+
+	TSharedRef<SVerticalBox> CenterBox = SNew(SVerticalBox);
+	if (BrandLogoBrush.IsValid())
+	{
+		CenterBox->AddSlot()
+		.AutoHeight()
+		.HAlign(HAlign_Center)
+		.Padding(0.0f, 0.0f, 0.0f, 18.0f)
+		[
+			SNew(SBox)
+			.WidthOverride(520.0f)
+			.HeightOverride(292.0f)
+			[
+				SNew(SImage)
+				.Image(BrandLogoBrush.Get())
+			]
+		];
+	}
+
+	CenterBox->AddSlot()
+	.AutoHeight()
+	.HAlign(HAlign_Center)
+	[
+		SNew(STextBlock)
+		.Text(FText::FromString(TEXT("LIFEPLAY  v1.0")))
+		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 24))
+		.ColorAndOpacity(FLinearColor(0.22f, 0.88f, 0.98f))
+	];
+
+	CenterBox->AddSlot()
+	.AutoHeight()
+	.HAlign(HAlign_Center)
+	.Padding(0.0f, 6.0f, 0.0f, 22.0f)
+	[
+		SNew(STextBlock)
+		.Text(FText::FromString(TEXT("Open World Life & Roleplay")))
+		.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
+		.ColorAndOpacity(FLinearColor(0.76f, 0.84f, 0.94f))
+	];
+
+	CenterBox->AddSlot()
+	.AutoHeight()
+	.HAlign(HAlign_Center)
+	[
+		SNew(SBorder)
+		.BorderImage(WhiteBrush)
+		.BorderBackgroundColor(FLinearColor(0.08f, 0.11f, 0.16f, 0.95f))
+		.Padding(FMargin(2.0f))
+		[
+			SNew(SBox)
+			.WidthOverride(480.0f)
+			.HeightOverride(8.0f)
+			[
+				SNew(SProgressBar)
+				.FillColorAndOpacity(FLinearColor(0.18f, 0.82f, 0.98f, 1.0f))
+				.Percent_Lambda([this]() -> TOptional<float> { return LoadingProgress; })
+			]
+		]
+	];
+
+	CenterBox->AddSlot()
+	.AutoHeight()
+	.HAlign(HAlign_Center)
+	.Padding(0.0f, 12.0f, 0.0f, 0.0f)
+	[
+		SNew(STextBlock)
+		.Text_Lambda([this]() { return FText::FromString(LoadingStatusText); })
+		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+		.ColorAndOpacity(FLinearColor(0.88f, 0.93f, 0.99f))
+	];
+
+	LoadingCurtainContainer = SNew(SOverlay)
+		.Visibility(EVisibility::Visible)
+		+ SOverlay::Slot()
+		[
+			SNew(SBorder)
+			.BorderImage(WhiteBrush)
+			.BorderBackgroundColor(FLinearColor(0.02f, 0.03f, 0.05f, 1.0f))
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				CenterBox
+			]
+		];
+
+	GEngine->GameViewport->AddViewportWidgetContent(LoadingCurtainContainer.ToSharedRef(), 95);
+	bLoadingCurtainActive = true;
+}
+
+void ULifePlayGTAControllerSubsystem::DismissLoadingCurtain(APlayerController* PC)
+{
+	if (GEngine && GEngine->GameViewport && LoadingCurtainContainer.IsValid())
+	{
+		GEngine->GameViewport->RemoveViewportWidgetContent(LoadingCurtainContainer.ToSharedRef());
+	}
+	LoadingCurtainContainer.Reset();
+	bLoadingCurtainActive = false;
+	bLoadingCurtainDismissed = true;
+
+	if (PC && bOnMainMenu)
+	{
+		ApplyInputLockForGta(PC, false);
+	}
+}
+
+void ULifePlayGTAControllerSubsystem::UpdateLoadingCurtain(UWorld* World, APlayerController* PC, float DeltaTime)
+{
+	if (bLoadingCurtainDismissed)
+	{
+		return;
+	}
+
+	EnsureLoadingCurtain();
+	LoadingElapsed += DeltaTime;
+	DressRetryTimer = FMath::Max(0.0f, DressRetryTimer - DeltaTime);
+	LoadingPrepTimer += DeltaTime;
+	if (LoadingPrepTimer >= 0.2f)
+	{
+		LoadingPrepTimer = 0.0f;
+		CleanAndRebrandGameWidgets(World);
+		EnsureTitleCharacterClothed(World);
+	}
+
+	const bool bAsyncDone = !IsAsyncLoading();
+	const bool bAssetsReady = (bAsyncDone && LoadingElapsed >= 1.2f && (bTitleCharClothed || LoadingElapsed >= 5.5f)) || (LoadingElapsed >= 9.0f);
+
+	if (!bAssetsReady)
+	{
+		LoadingProgress = FMath::Min(0.68f, (LoadingElapsed / 6.0f) * 0.68f);
+		LoadingStatusText = !bAsyncDone
+			? TEXT("Loading game assets & textures...")
+			: (bTitleCharClothed ? TEXT("Preparing scene...") : TEXT("Loading outfits & dressing character..."));
+	}
+	else
+	{
+		BufferTimeRemaining -= DeltaTime;
+		const float BufFrac = 1.0f - FMath::Clamp(BufferTimeRemaining / 2.0f, 0.0f, 1.0f);
+		LoadingProgress = 0.68f + 0.32f * BufFrac;
+		LoadingStatusText = TEXT("Buffering interface...");
+		if (BufferTimeRemaining <= 0.0f || LoadingElapsed >= 12.0f)
+		{
+			DismissLoadingCurtain(PC);
+		}
 	}
 }
 
@@ -662,6 +953,7 @@ void ULifePlayGTAControllerSubsystem::EnsureHudOverlay()
 	if (!MinimapContainer.IsValid() && MapViewState.IsValid())
 	{
 		MinimapContainer = SNew(SOverlay)
+			.Visibility(EVisibility::HitTestInvisible)
 			+ SOverlay::Slot()
 			[
 				SNew(SLifePlayGtaMapWidget)
@@ -737,6 +1029,7 @@ void ULifePlayGTAControllerSubsystem::EnsureHudOverlay()
 	];
 
 	HudContainer = SNew(SOverlay)
+		.Visibility(EVisibility::HitTestInvisible)
 
 		// Top-Left Modern GTA Brand & Status Card
 		+ SOverlay::Slot()
@@ -1229,14 +1522,44 @@ void ULifePlayGTAControllerSubsystem::Tick(float DeltaTime)
 	UWorld* World = GetWorld();
 	if (!World) return;
 
+	GAreScreenMessagesEnabled = false;
+	bOnMainMenu = IsMainMenuVisible(World);
+
+	APlayerController* PC = World->GetFirstPlayerController();
+
+	if (!bLoadingCurtainDismissed)
+	{
+		UpdateLoadingCurtain(World, PC, DeltaTime);
+	}
+
 	MenuCleanTimer += DeltaTime;
 	if (MenuCleanTimer >= 0.5f)
 	{
 		MenuCleanTimer = 0.0f;
 		CleanAndRebrandGameWidgets(World);
+		if (bOnMainMenu)
+		{
+			EnsureTitleCharacterClothed(World);
+		}
 	}
 
-	APlayerController* PC = World->GetFirstPlayerController();
+	if (bOnMainMenu)
+	{
+		if (HudContainer.IsValid()) HudContainer->SetVisibility(EVisibility::Collapsed);
+		if (MinimapContainer.IsValid()) MinimapContainer->SetVisibility(EVisibility::Collapsed);
+		CachedPlayerChar.Reset();
+		if (bChatOpen) CloseRoleplayChat();
+		if (bFullMapOpen) CloseWorldMap();
+		if (bGtaModeEnabled) SetGtaModeEnabled(false);
+		return;
+	}
+
+	if (!bLoadingCurtainActive)
+	{
+		if (HudContainer.IsValid()) HudContainer->SetVisibility(EVisibility::HitTestInvisible);
+		if (MinimapContainer.IsValid()) MinimapContainer->SetVisibility(EVisibility::HitTestInvisible);
+	}
+
 	if (!PC) return;
 
 	ACharacter* PlayerChar = ResolvePlayerCharacter(World, PC);

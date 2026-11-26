@@ -19,7 +19,7 @@ class USpringArmComponent;
 class UTexture2D;
 struct FGtaMapData;
 struct FGtaMapViewState;
-struct FSlateDynamicImageBrush;
+struct FSlateBrush;
 
 /**
  * Lightweight over-the-shoulder GTA camera rig spawned at runtime.
@@ -107,7 +107,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTexture2D> BrandLogoTexture;
 
-	TSharedPtr<FSlateDynamicImageBrush> BrandLogoBrush;
+	TSharedPtr<FSlateBrush> BrandLogoBrush;
 	TSharedPtr<SWidget> HudContainer;
 	TSharedPtr<SBorder> BottomHudBorder;
 	TSharedPtr<STextBlock> TopStatusModeText;
@@ -123,6 +123,20 @@ private:
 	TSharedPtr<SWidget> MinimapContainer;
 	TSharedPtr<SWidget> FullMapContainer;
 	TSharedPtr<SLifePlayGtaMapWidget> FullMapWidget;
+	TSharedPtr<SWidget> LoadingCurtainContainer;
+
+	bool bOnMainMenu = false;
+	bool bMainMenuRebranded = false;
+	bool bLoadingCurtainActive = false;
+	bool bLoadingCurtainDismissed = false;
+	bool bTitleCharClothed = false;
+	float LoadingElapsed = 0.0f;
+	float BufferTimeRemaining = 2.0f;
+	float LoadingProgress = 0.05f;
+	float LoadingPrepTimer = 0.0f;
+	float DressRetryTimer = 0.0f;
+	int32 DressRetryCount = 0;
+	FString LoadingStatusText = TEXT("Loading game assets & clothing...");
 
 	float NpcScanTimer = 0.0f;
 	float MenuCleanTimer = 0.0f;
@@ -133,6 +147,11 @@ private:
 
 	void LoadBrandLogoBrush();
 	void CleanAndRebrandGameWidgets(UWorld* World);
+	bool IsMainMenuVisible(UWorld* World) const;
+	void EnsureTitleCharacterClothed(UWorld* World);
+	void EnsureLoadingCurtain();
+	void UpdateLoadingCurtain(UWorld* World, APlayerController* PC, float DeltaTime);
+	void DismissLoadingCurtain(APlayerController* PC);
 	void RefreshStreetMapCache(UWorld* World);
 	void UpdateMapViewState(UWorld* World, APlayerController* PC, ACharacter* PlayerChar, class ULifePlayAIRoleplaySubsystem* AISub);
 	ACharacter* ResolvePlayerCharacter(UWorld* World, APlayerController* PC);

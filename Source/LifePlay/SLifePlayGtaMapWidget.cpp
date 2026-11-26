@@ -20,6 +20,10 @@ void SGtaMapCanvas::Construct(const FArguments& InArgs)
 
 	PixelsPerCm = bFullScreen ? 0.0038f : 0.0068f;
 	CenterOnPlayer();
+	if (!bFullScreen)
+	{
+		SetVisibility(EVisibility::HitTestInvisible);
+	}
 }
 
 void SGtaMapCanvas::CenterOnPlayer()
@@ -395,6 +399,7 @@ void SLifePlayGtaMapWidget::Construct(const FArguments& InArgs)
 
 	if (!bFullScreen)
 	{
+		SetVisibility(EVisibility::HitTestInvisible);
 		ChildSlot
 		.HAlign(HAlign_Left)
 		.VAlign(VAlign_Bottom)
